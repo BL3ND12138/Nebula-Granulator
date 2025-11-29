@@ -35,6 +35,7 @@ interface Meteor {
   length: number;
   opacity: number;
   size: number;
+  type: 'STAR' | 'METEOR';
 }
 
 const NebulaCanvas: React.FC<NebulaCanvasProps> = ({
@@ -83,22 +84,30 @@ const NebulaCanvas: React.FC<NebulaCanvasProps> = ({
     return () => clearInterval(interval);
   }, [showHint]);
 
-  // Reset/Create Meteor
+  // Reset/Create Meteor or Star
   const resetMeteor = (w: number, h: number, initial = false): Meteor => {
-    const angle = Math.PI / 4 + (Math.random() - 0.5) * 0.2; // 45 degreesish
-    const speed = 0.2 + Math.random() * 0.5; // Slow speed
+    // 85% Stars (Background), 15% Meteors (Foreground)
+    const isStar = Math.random() > 0.15;
+    
+    // Angle: flowing top-right to bottom-left (approx 135 degrees)
+    const angle = Math.PI * 0.75 + (Math.random() - 0.5) * 0.1; 
+    
+    // Speed: Stars are very slow, Meteors are slightly faster (but still slow/graceful)
+    const speed = isStar 
+        ? 0.05 + Math.random() * 0.1 
+        : 0.3 + Math.random() * 0.4;
     
     let x, y;
     if (initial) {
         x = Math.random() * w;
         y = Math.random() * h;
     } else {
-        // Spawn from top or left
+        // Spawn from top or right edge
         if (Math.random() > 0.5) {
-            x = Math.random() * w;
-            y = -100;
+            x = Math.random() * w + 100; // Right side bias
+            y = -50;
         } else {
-            x = -100;
+            x = w + 50;
             y = Math.random() * h;
         }
     }
@@ -106,11 +115,16 @@ const NebulaCanvas: React.FC<NebulaCanvasProps> = ({
     return {
         x, 
         y,
-        vx: Math.cos(angle) * speed, // Moving right-down
+        vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        length: 20 + Math.random() * 50, // Trail length
-        opacity: 0.1 + Math.random() * 0.3,
-        size: 0.5 + Math.random() * 1.5
+        length: isStar ? 1.5 : 20 + Math.random() * 80, // Stars are dots, Meteors have trails
+        opacity: isStar 
+            ? 0.1 + Math.random() * 0.4 // Twinkling stars
+            : 0.2 + Math.random() * 0.5, // Meteors
+        size: isStar 
+            ? 0.5 + Math.random() * 1.0 
+            : 0.5 + Math.random() * 1.5,
+        type: isStar ? 'STAR' : 'METEOR'
     };
   };
 
@@ -125,18 +139,18 @@ const NebulaCanvas: React.FC<NebulaCanvasProps> = ({
     const t = timeRef.current;
 
     // 1. Background / Nebula
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = '#050508'; // Very dark blue-black
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Simple "Nebula" using radial gradients and additive blending
     ctx.globalCompositeOperation = 'screen';
     for (let i = 0; i < 3; i++) {
-        const x = canvas.width/2 + Math.sin(t * 0.2 + i) * 300;
-        const y = canvas.height/2 + Math.cos(t * 0.3 + i * 2) * 200;
-        const r = 400 + Math.sin(t * 0.5 + i) * 100;
+        const x = canvas.width/2 + Math.sin(t * 0.1 + i) * 300;
+        const y = canvas.height/2 + Math.cos(t * 0.15 + i * 2) * 200;
+        const r = 400 + Math.sin(t * 0.2 + i) * 100;
         
         const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-        grad.addColorStop(0, `hsla(${240 + i * 40}, 60%, 15%, 0.4)`);
+        grad.addColorStop(0, `hsla(${260 + i * 30}, 50%, 10%, 0.3)`); // Purple/Blue Deep
         grad.addColorStop(1, 'transparent');
         
         ctx.fillStyle = grad;
@@ -145,41 +159,47 @@ const NebulaCanvas: React.FC<NebulaCanvasProps> = ({
         ctx.fill();
     }
 
-    // --- METEOR PARTICLES ---
-    // Initialize meteors
+    // --- METEOR / STAR PARTICLES ---
+    // Initialize dense particle field
     if (meteorsRef.current.length === 0) {
-        for(let i=0; i<30; i++) {
+        // High count for "Galaxy" feel
+        for(let i=0; i<350; i++) {
             meteorsRef.current.push(resetMeteor(canvas.width, canvas.height, true));
         }
     }
 
-    // Draw Meteors
+    // Draw Particles
     meteorsRef.current.forEach((m, i) => {
         m.x += m.vx;
         m.y += m.vy;
 
-        // Reset if out of bounds
-        if (m.x > canvas.width + 100 || m.y > canvas.height + 100) {
+        // Wrap around logic (graceful flow)
+        if (m.x < -100 || m.y > canvas.height + 100) {
             meteorsRef.current[i] = resetMeteor(canvas.width, canvas.height);
         }
 
-        // Draw trail
-        const tailX = m.x - m.vx * m.length;
-        const tailY = m.y - m.vy * m.length;
+        if (m.type === 'STAR') {
+            // Draw Star (Simple dot)
+            ctx.fillStyle = `rgba(200, 220, 255, ${m.opacity})`;
+            ctx.fillRect(m.x, m.y, m.size, m.size);
+        } else {
+            // Draw Meteor (Trail)
+            const tailX = m.x - m.vx * m.length;
+            const tailY = m.y - m.vy * m.length;
 
-        const grad = ctx.createLinearGradient(m.x, m.y, tailX, tailY);
-        grad.addColorStop(0, `rgba(255, 255, 255, ${m.opacity})`);
-        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            const grad = ctx.createLinearGradient(m.x, m.y, tailX, tailY);
+            grad.addColorStop(0, `rgba(255, 255, 255, ${m.opacity})`);
+            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
 
-        ctx.strokeStyle = grad;
-        ctx.lineWidth = m.size;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(m.x, m.y);
-        ctx.lineTo(tailX, tailY);
-        ctx.stroke();
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = m.size;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(m.x, m.y);
+            ctx.lineTo(tailX, tailY);
+            ctx.stroke();
+        }
     });
-
 
     ctx.globalCompositeOperation = 'source-over';
 
